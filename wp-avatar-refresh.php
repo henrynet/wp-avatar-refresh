@@ -19,7 +19,7 @@ class WP_Avatar_Refresh {
     private static $instance = false;
 
     public static function get_instance() {
-        if (!self::$instance) {
+        if ( ! self::$instance ) {
             self::$instance = new self();
         }
         return self::$instance;
@@ -51,10 +51,10 @@ class WP_Avatar_Refresh {
 	}
 
 	function _post_discourse_api( $url, $params, $err_name ) {
-		return _discourse_api( $url, 'POST', $params, $err_name );
+		return self::_discourse_api( $url, 'POST', $params, $err_name );
 	}
 	function _put_discourse_api( $url, $params, $err_name ) {
-		return _discourse_api( $url, 'PUT', $params, $err_name );
+		return self::_discourse_api( $url, 'PUT', $params, $err_name );
 	}
 	function _discourse_api( $url, $method, $params, $err_name ) {
 		$response = wp_remote_post( $url, array(
@@ -73,7 +73,7 @@ class WP_Avatar_Refresh {
 			$error_message = $response->get_error_message();
 			throw new Exception( $err_name . '_err_msg: ' . $error_message );
 		} else {
-			if ( $debug ) {
+			if ( self::$debug ) {
 				echo 'Response:<pre>';
 				print_r( $response );
 				echo '</pre>';
@@ -110,8 +110,8 @@ class WP_Avatar_Refresh {
 					'sig' => $sig
 					);
 
-			$parsed_response = _post_discourse_api( $url, $params, 'discourse_sync_sso' );
-			if ( $debug ) {
+			$parsed_response = self::_post_discourse_api( $url, $params, 'discourse_sync_sso' );
+			if ( self::$debug ) {
 				echo "Username: $parsed_response->username, Avatar URL: $avatar_url";
 			}
 
@@ -133,7 +133,7 @@ class WP_Avatar_Refresh {
 					'file' => $avatar_url,
 					'image_type' => 'avatar'
 					);
-			$parsed_response = _post_discourse_api( $url, $params, 'discourse_user_image' );
+			$parsed_response = self::_post_discourse_api( $url, $params, 'discourse_user_image' );
 			$upload_id = $parsed_response->upload_id;
 
 			$url = $discourse_options['url'] . '/users/' . $discourse_username . '/preferences/avatar/pick';
@@ -143,7 +143,7 @@ class WP_Avatar_Refresh {
 					'username' => $discourse_username,
 					'upload_id' => $upload_id
 					);
-			$parsed_response = _put_discourse_api( $url, $params, 'discourse_avatar_pick' );
+			$parsed_response = self::_put_discourse_api( $url, $params, 'discourse_avatar_pick' );
 		}
 	}
 
@@ -161,6 +161,9 @@ class WP_Avatar_Refresh {
 	}
 
 	function custom_wp_avatar_refresh() {
+		if ( isset( $_GET['debug'] ) ) {
+			self::$debug = true;
+		}
 		if ( isset( $_GET['avatar'] ) && is_user_logged_in() ) {
 			$var_avatar = $_GET['avatar'];
 			if ( $var_avatar === 'refresh' ) {
@@ -180,7 +183,7 @@ class WP_Avatar_Refresh {
 
 				$avatar_id = get_user_meta( $avatar_user->ID, 'wp_user_avatar', true );
 				if ( ! empty( $avatar_id ) ) {
-					$avatar_url = get_avatar_url( $avatar_user->ID );
+					$avatar_url = self::get_avatar_url( $avatar_user->ID );
 				}
 				else {
 					$meta_key = '_wc_social_login_profile_image';
@@ -191,14 +194,14 @@ class WP_Avatar_Refresh {
 					}
 				}
 
-				// update to real image url without redirect
+				// get real image url without redirect
 				if ( ! empty ( $avatar_url ) ) {
-					$avatar_url = curl_get_avatar_url( $avatar_url );
+					$avatar_url = self::curl_get_avatar_url( $avatar_url );
 				}
-				refresh_discourse_avatar( $avatar_user, $avatar_url );
+				self::refresh_discourse_avatar( $avatar_user, $avatar_url );
 
 				// redirect back to referer
-				if ( ! $debug ) {
+				if ( ! self::$debug ) {
 					if ( wp_get_referer() ) {
 						wp_safe_redirect( wp_get_referer() );
 					}
@@ -206,7 +209,7 @@ class WP_Avatar_Refresh {
 						wp_safe_redirect( get_home_url() );
 					}
 				}
-				
+
 				exit;
 			}
 		}
