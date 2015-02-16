@@ -1,4 +1,13 @@
 <?php
+/**
+* Plugin Name: WP Avatar Refresh
+* Plugin URI: https://github.com/henrynet/wp-avatar-refresh/
+* Description: A plugin to refresh and sync user avatar between Wordpress and Discourse.
+* Version: 0.1
+* Author: henrynet
+* Author URI: https://github.com/henrynet/
+* License: MIT
+*/
 
 if ( ! class_exists( 'WP_Avatar_Refresh' ) ) {
 
@@ -64,9 +73,11 @@ class WP_Avatar_Refresh {
 			$error_message = $response->get_error_message();
 			throw new Exception( $err_name . '_err_msg: ' . $error_message );
 		} else {
-			$debug and echo 'Response:<pre>';
-			$debug and print_r( $response );
-			$debug and echo '</pre>';
+			if ( $debug ) {
+				echo 'Response:<pre>';
+				print_r( $response );
+				echo '</pre>';
+			}
 			$parsed_response = json_decode( $response['body'] );
 			if ( ! empty( $parsed_response->error ) && ! empty( $parsed_response->error->code ) ) {
 				throw new Exception( $err_name . '_err_code: ' . $parsed_response->error->code );
@@ -100,7 +111,9 @@ class WP_Avatar_Refresh {
 					);
 
 			$parsed_response = _post_discourse_api( $url, $params, 'discourse_sync_sso' );
-			$debug and echo "$parsed_response->username, $avatar_url";
+			if ( $debug ) {
+				echo "Username: $parsed_response->username, Avatar URL: $avatar_url";
+			}
 
 			if ( empty( $avatar_url ) ) {
 				return;
@@ -185,12 +198,15 @@ class WP_Avatar_Refresh {
 				refresh_discourse_avatar( $avatar_user, $avatar_url );
 
 				// redirect back to referer
-				if ( wp_get_referer() ) {
-					wp_safe_redirect( wp_get_referer() );
+				if ( ! $debug ) {
+					if ( wp_get_referer() ) {
+						wp_safe_redirect( wp_get_referer() );
+					}
+					else {
+						wp_safe_redirect( get_home_url() );
+					}
 				}
-				else {
-					wp_safe_redirect( get_home_url() );
-				}
+				
 				exit;
 			}
 		}
@@ -212,8 +228,8 @@ class WP_Avatar_Refresh {
 		</table> 
 	<?php
 	}
-
-	WP_Avatar_Refresh::get_instance();
-
 }
+
+WP_Avatar_Refresh::get_instance();
+
 }
