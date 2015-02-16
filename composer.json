@@ -1,0 +1,21 @@
+{
+  "name": "wp-avatar-refresh",
+  "type": "wordpress-plugin",
+  "license": "MIT",
+  "description": "A plugin to refresh and sync user avatar between Wordpress and Discourse",
+  "homepage": "https://github.com/henrynet/wp-avatar-refresh",
+  "authors": [
+    {
+      "name": "henrynet",
+      "homepage": "https://github.com/henrynet"
+    }
+  ],
+  "keywords": ["wordpress", "discourse"],
+  "support": {
+    "issues": "https://github.com/henrynet/wp-avatar-refresh/issues"
+  },
+  "require": {
+    "php": ">=5.3",
+    "composer/installers": "1.0.*"
+  }
+}
