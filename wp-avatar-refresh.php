@@ -33,6 +33,11 @@ class WP_Avatar_Refresh {
 
 		add_action( 'show_user_profile', array( $this, 'refresh_user_avatar' ) );
 		add_action( 'edit_user_profile', array( $this, 'refresh_user_avatar' ) );
+
+		add_action( 'groups_deleted_user_group', array( $this, 'deleted_user_group' ), 10, 2 );
+
+		add_action( 'clear_auth_cookie', array( $this, 'action_clear_auth' ), 1 );
+		add_action( 'wc_social_login_user_account_linked', array( $this, 'social_login_linked' ) );
 	}
 
 	/*
@@ -43,6 +48,52 @@ class WP_Avatar_Refresh {
 	 * Actions perform on de-activation of plugin
 	 */
 	function uninstall() { }
+
+	function social_login_linked() {
+		global $current_user;
+		get_currentuserinfo();
+		/* refresh avatar */
+		self::_refresh_avatar( $current_user );
+	}
+
+	function action_clear_auth() {
+		global $current_user;
+		get_currentuserinfo();
+		self::discourse_logout( $current_user );
+	}
+
+	function discourse_logout( $user ) {
+		if ( class_exists( 'Discourse' ) && class_exists( 'Discourse_SSO' ) ) {
+			$discourse_options = wp_parse_args( get_option( 'discourse' ), Discourse::$options );
+			$sso_secret = $discourse_options['sso-secret'];
+			$params = self::_get_sso_params( $user, $avatar_url, $sso_secret, 
+				$discourse_options['api-key'], $discourse_options['publish-username']);
+			$url = $discourse_options['url'] . '/admin/users/sync_sso';
+
+			$parsed_response = self::_post_discourse_api( $url, $params, 'discourse_sync_sso' );
+			$discourse_id = $parsed_response->id;
+			if ( empty( $discourse_id ) ) {
+				return; 
+			}
+
+			$url = $discourse_options['url'] . '/admin/users/' . $discourse_id . '/log_out';
+			$params = array( 
+				'api_key' => $discourse_options['api-key'], 
+				'api_username' => $discourse_options['publish-username']
+				);
+			$parsed_response = self::_post_discourse_api( $url, $params, 'discourse_log_out' );
+		}
+	}
+
+	function deleted_user_group( $user_id, $group_id ) {
+		if ( class_exists( 'Groups_Group' ) ) {
+			$group = new Groups_Group ( $group_id );
+			if ( $group->name === 'Paid Membership' ) {
+				$user = get_userdata( $user_id );
+				self::discourse_logout( $user );
+			}
+		}
+	}
 
 	function get_avatar_url( $user_id ) {
 		$avatar = get_avatar( $user_id );
@@ -86,29 +137,37 @@ class WP_Avatar_Refresh {
 		}
 	}
 
+	function _get_sso_params( $user, $avatar_url, $sso_secret, $api_key, $api_username ) {
+		$params = array(
+				'name' => $user->display_name,
+				'username' => $user->user_login,
+				'email' => $user->user_email,
+				'about_me' => $user->description,
+				'external_id' => $user->ID
+				);
+		if ( ! empty( $avatar_url ) ) {
+			$params['avatar_url'] = $avatar_url;
+		}
+
+		$payload = base64_encode( http_build_query( $params ) );
+		$sig = hash_hmac( "sha256", $payload, $sso_secret );
+		
+		$params = array(
+				'api_key' => $api_key, 
+				'api_username' => $api_username, 
+				'sso' => $payload,
+				'sig' => $sig
+				);
+		return $params;
+	}
+
 	function refresh_discourse_avatar( $avatar_user, $avatar_url ) {
 		if ( class_exists( 'Discourse' ) && class_exists( 'Discourse_SSO' ) ) {
 			$discourse_options = wp_parse_args( get_option( 'discourse' ), Discourse::$options );
 			$sso_secret = $discourse_options['sso-secret'];
-
-			$params = array(
-					'name' => $avatar_user->display_name,
-					'username' => $avatar_user->user_login,
-					'email' => $avatar_user->user_email,
-					'about_me' => $avatar_user->description,
-					'external_id' => $avatar_user->ID,
-					'avatar_url' => $avatar_url
-					);
-			$payload = base64_encode( http_build_query( $params ) );
-			$sig = hash_hmac( "sha256", $payload, $sso_secret );
-
+			$params = self::_get_sso_params( $avatar_user, $avatar_url, $sso_secret, 
+				$discourse_options['api-key'], $discourse_options['publish-username']);
 			$url = $discourse_options['url'] . '/admin/users/sync_sso';
-			$params = array(
-					'api_key' => $discourse_options['api-key'], 
-					'api_username' => $discourse_options['publish-username'], 
-					'sso' => $payload,
-					'sig' => $sig
-					);
 
 			$parsed_response = self::_post_discourse_api( $url, $params, 'discourse_sync_sso' );
 			if ( self::$debug ) {
@@ -160,6 +219,27 @@ class WP_Avatar_Refresh {
 		return $url;
 	}
 
+	function _refresh_avatar( $avatar_user ) {
+		$avatar_id = get_user_meta( $avatar_user->ID, 'wp_user_avatar', true );
+		if ( ! empty( $avatar_id ) ) {
+			$avatar_url = self::get_avatar_url( $avatar_user->ID );
+		}
+		else {
+			$meta_key = '_wc_social_login_profile_image';
+			$profile_image = get_user_meta( $avatar_user->ID, $meta_key, true );
+			if ( ! empty( $profile_image ) ) {
+				$avatar_url = wp_nonce_url( $profile_image, $meta_key . wp_rand() );
+				update_user_meta( $avatar_user->ID, $meta_key, $avatar_url );
+			}
+		}
+
+		// get real image url without redirect
+		if ( ! empty ( $avatar_url ) ) {
+			$avatar_url = self::curl_get_avatar_url( $avatar_url );
+		}
+		self::refresh_discourse_avatar( $avatar_user, $avatar_url );
+	}
+
 	function custom_wp_avatar_refresh() {
 		if ( isset( $_GET['debug'] ) ) {
 			self::$debug = true;
@@ -181,24 +261,7 @@ class WP_Avatar_Refresh {
 					$avatar_user = $current_user;
 				}
 
-				$avatar_id = get_user_meta( $avatar_user->ID, 'wp_user_avatar', true );
-				if ( ! empty( $avatar_id ) ) {
-					$avatar_url = self::get_avatar_url( $avatar_user->ID );
-				}
-				else {
-					$meta_key = '_wc_social_login_profile_image';
-					$profile_image = get_user_meta( $avatar_user->ID, $meta_key, true );
-					if ( ! empty( $profile_image ) ) {
-						$avatar_url = wp_nonce_url( $profile_image, $meta_key . wp_rand() );
-						update_user_meta( $avatar_user->ID, $meta_key, $avatar_url );
-					}
-				}
-
-				// get real image url without redirect
-				if ( ! empty ( $avatar_url ) ) {
-					$avatar_url = self::curl_get_avatar_url( $avatar_url );
-				}
-				self::refresh_discourse_avatar( $avatar_user, $avatar_url );
+				self::_refresh_avatar( $avatar_user );
 
 				// redirect back to referer
 				if ( ! self::$debug ) {
